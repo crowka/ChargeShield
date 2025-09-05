@@ -168,7 +168,7 @@ Diese kurze Tour zeigt den Kernablauf vom Verbinden deines Shops bis zur Einreic
 chargeback-evidence-app/
 ├── package.json
 ├── tsconfig.json
-├── next.config.mjs
+├── next.config.ts
 ├── next-i18next.config.js
 ├── postcss.config.js
 ├── tailwind.config.ts
@@ -285,9 +285,9 @@ supabase/
     "e2e": "playwright test"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
+    "next": "15.0.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
     "@supabase/supabase-js": "2.45.4",
     "zod": "3.23.8",
     "stripe": "14.23.0",
@@ -301,8 +301,9 @@ supabase/
   },
   "devDependencies": {
     "typescript": "5.5.4",
-    "eslint": "8.57.0",
-    "eslint-config-next": "14.2.5",
+    "eslint": "9.7.0",
+    "eslint-config-next": "15.0.0",
+    "eslint-plugin-unused-imports": "3.2.0",
     "@playwright/test": "1.46.0",
     "prettier": "3.3.3",
     "husky": "9.0.11",
@@ -326,6 +327,8 @@ supabase/
     "lib": ["ES2022", "DOM"],
     "skipLibCheck": true,
     "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noPropertyAccessFromIndexSignature": true,
@@ -394,6 +397,34 @@ Then create a pre-commit hook to run lint-staged:
 
 ```bash
 echo "npx lint-staged" > .husky/pre-commit && chmod +x .husky/pre-commit
+```
+
+---
+
+## .prettierrc.json
+```json
+{
+  "singleQuote": true,
+  "semi": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "tabWidth": 2
+}
+```
+
+---
+
+## .eslintrc.json
+```json
+{
+  "root": true,
+  "extends": ["next/core-web-vitals"],
+  "plugins": ["unused-imports"],
+  "rules": {
+    "unused-imports/no-unused-imports": "error",
+    "@next/next/no-html-link-for-pages": "off"
+  }
+}
 ```
 
 ---
@@ -1354,13 +1385,18 @@ export async function PUT(req: NextRequest) {
 ```
 
 
-## next.config.mjs
-```js
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+## next.config.ts
+```ts
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
   reactStrictMode: true,
   experimental: {
     typedRoutes: true
+  },
+  i18n: {
+    defaultLocale: 'en',
+    locales: ['en', 'es', 'de']
   }
 };
 
@@ -2325,7 +2361,7 @@ self.addEventListener('fetch', (event) => {
 
 ## src/app/layout.tsx
 ```tsx
-import './styles/globals.css';
+import './globals.css';
 import React, { useEffect } from 'react';
 import { I18nProvider } from '@/i18n';
 import { AnalyticsProvider } from '@core/analytics';
@@ -2394,18 +2430,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 module.exports = {
   i18n: {
     defaultLocale: 'en',
-    locales: ['en', 'en-US', 'en-GB', 'de', 'de-DE', 'es', 'es-ES', 'es-MX']
+    locales: ['en', 'es', 'de']
   },
   localeDetection: true,
-  // Basic fallbacks per region -> base language
-  fallbackLng: {
-    'en-US': ['en'],
-    'en-GB': ['en'],
-    'de-DE': ['de'],
-    'es-ES': ['es'],
-    'es-MX': ['es'],
-    default: ['en']
-  },
   returnNull: false
 };
 ```
@@ -2550,6 +2577,143 @@ export default {
 
 ---
 
+## src/ui/NotificationBell.tsx
+```tsx
+'use client';
+import { useEffect, useState } from 'react';
+import { supabaseClient } from '@core/supabaseClient';
+
+type NotificationItem = {
+  id: string;
+  title: string;
+  created_at: string;
+};
+
+export function NotificationBell(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const { data } = await supabaseClient
+          .from('alerts')
+          .select('id, title, created_at')
+          .order('created_at', { ascending: false })
+          .limit(10);
+        setItems((data as any[])?.map((d) => ({ id: d.id, title: d.title, created_at: d.created_at })) || []);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        aria-label="Notifications"
+        className="w-8 h-8 rounded-full border flex items-center justify-center hover:bg-gray-50"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span aria-hidden>🔔</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-72 bg-white border rounded shadow-lg z-50">
+          <div className="p-2 text-sm font-medium">Notifications</div>
+          <div className="max-h-80 overflow-auto divide-y">
+            {loading ? (
+              <div className="p-3 text-sm text-gray-500">Loading…</div>
+            ) : items.length === 0 ? (
+              <div className="p-3 text-sm text-gray-600">No notifications</div>
+            ) : (
+              items.map((n) => (
+                <div key={n.id} className="p-3 text-sm">
+                  <div className="font-medium line-clamp-2">{n.title}</div>
+                  <div className="text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## src/ui/CommandPalette.tsx
+```tsx
+'use client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+type Command = { id: string; label: string; run: () => void };
+
+export function CommandPalette(): JSX.Element {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+
+  const commands = useMemo<Command[]>(() => [
+    { id: 'go-disputes', label: 'Go to Disputes', run: () => router.push('/disputes') },
+    { id: 'go-analytics', label: 'Go to Analytics', run: () => router.push('/analytics') },
+    { id: 'go-settings', label: 'Go to Settings', run: () => router.push('/settings') }
+  ], [router]);
+
+  const filtered = useMemo(
+    () => commands.filter((c) => c.label.toLowerCase().includes(q.toLowerCase())),
+    [commands, q]
+  );
+
+  const onKey = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      setOpen((v) => !v);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onKey]);
+
+  if (!open) return <></>;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4" onClick={() => setOpen(false)}>
+      <div className="w-full max-w-lg rounded bg-white shadow-lg border" onClick={(e) => e.stopPropagation()}>
+        <div className="p-3 border-b">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Type a command… ⌘K"
+            className="w-full px-3 py-2 rounded border"
+          />
+        </div>
+        <div className="max-h-96 overflow-auto divide-y">
+          {filtered.length === 0 ? (
+            <div className="p-3 text-sm text-gray-600">No results</div>
+          ) : (
+            filtered.map((c) => (
+              <button key={c.id} className="w-full text-left p-3 text-sm hover:bg-gray-50" onClick={() => { c.run(); setOpen(false); }}>
+                {c.label}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## postcss.config.js
 ```js
 module.exports = {
@@ -2582,8 +2746,10 @@ SHOPIFY_WEBHOOK_SECRET=
 
 EVIDENCE_BUCKET=evidence-packets
 
-# i18n/analytics
+# i18n
 NEXT_PUBLIC_DEFAULT_LOCALE=en
+
+# analytics (optional)
 ANALYTICS_WRITE_KEY=
 
 # notifications
@@ -2602,7 +2768,9 @@ Supabase + Next.js app to ingest disputes, assemble evidence, submit via PSP API
 ## Run
 1. Copy `.env.example` to `.env.local` and fill values.
 2. `npm install`
-3. `npm run dev`
+3. `npm run dev` and open http://localhost:3000
+
+Health check: http://localhost:3000/api/health
 
 ## Conventions
 - Routes under `src/app`. Components PascalCase. Utilities under `src/lib` with named exports.
@@ -2617,7 +2785,7 @@ Supabase + Next.js app to ingest disputes, assemble evidence, submit via PSP API
 
 ---
 
-## src/styles/globals.css
+## src/app/globals.css
 ```css
 @tailwind base;
 @tailwind components;
@@ -2630,7 +2798,7 @@ html, body, :root { height: 100%; }
 
 ## src/app/layout.tsx
 ```tsx
-import './styles/globals.css';
+import './globals.css';
 import React from 'react';
 import { I18nProvider } from '@/i18n';
 import { AnalyticsProvider } from '@core/analytics';
@@ -2762,6 +2930,49 @@ export default function Home() {
     <main className="p-8">
       <h1 className="text-2xl font-semibold">Chargeback Evidence Builder</h1>
       <p className="mt-2">Go to /disputes to view the inbox.</p>
+    </main>
+  );
+}
+```
+
+---
+
+## src/app/api/health/route.ts
+```ts
+import { NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+
+export function GET() {
+  return NextResponse.json({ ok: true, ts: new Date().toISOString() });
+}
+```
+
+---
+
+## src/app/error.tsx
+```tsx
+'use client';
+
+export default function Error({ error }: { error: Error }) {
+  return (
+    <main className="p-8">
+      <h1 className="text-xl font-semibold">Something went wrong</h1>
+      <p className="mt-2 text-sm text-red-700">{error.message}</p>
+    </main>
+  );
+}
+```
+
+---
+
+## src/app/not-found.tsx
+```tsx
+export default function NotFound() {
+  return (
+    <main className="p-8">
+      <h1 className="text-xl font-semibold">404 — Not Found</h1>
+      <p className="mt-2 text-sm">The page you’re looking for doesn’t exist.</p>
     </main>
   );
 }
@@ -6813,26 +7024,47 @@ export default function SettingsPage() {
 
 ---
 
-## src/lib/supabaseClient.ts
+## src/lib/core/env.ts
+```ts
+import { z } from 'zod';
+
+const EnvSchema = z.object({
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional()
+});
+
+export const env = EnvSchema.parse({
+  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY
+});
+```
+
+---
+
+## src/lib/core/supabaseClient.ts
 ```ts
 import { createClient } from '@supabase/supabase-js';
+import { env } from './env';
 
 export const supabaseClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  env.NEXT_PUBLIC_SUPABASE_URL,
+  env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 ```
 
 ---
 
-## src/lib/supabaseServer.ts
+## src/lib/core/supabaseServer.ts
 ```ts
 import { createClient } from '@supabase/supabase-js';
+import { env } from './env';
 
 export function createServerClient() {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.SUPABASE_SERVICE_ROLE_KEY || ''
   );
 }
 ```
